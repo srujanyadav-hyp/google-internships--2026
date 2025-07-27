@@ -1,68 +1,78 @@
 import time
 from datetime import datetime
 
-# Store tasks in a list of dicts
+# Task class to store each task
+class Task:
+    def __init__(self, title, duration):
+        self.title = title
+        self.duration = duration  # in minutes
+
 tasks = []
 
+# Add new task
 def add_task():
     title = input("Enter task title: ")
-    try:
-        minutes = int(input("Enter time in minutes for this task: "))
-        tasks.append({"title": title, "minutes": minutes, "added": datetime.now()})
-        print(f"✅ Task '{title}' added for {minutes} minutes.\n")
-    except ValueError:
-        print("❌ Please enter a valid number for minutes.\n")
+    duration = int(input("Enter time in minutes for this task: "))
+    task = Task(title, duration)
+    tasks.append(task)
+    print(f"✅ Task '{title}' added for {duration} minutes.\n")
 
-def show_tasks():
+# List all tasks
+def list_tasks():
     if not tasks:
-        print("📭 No tasks available.\n")
+        print("🚫 No tasks available.\n")
         return
-    print("\n📝 Task List:")
-    for i, task in enumerate(tasks, 1):
-        print(f"{i}. {task['title']} - {task['minutes']} min")
+    print("📝 Tasks:")
+    for i, task in enumerate(tasks):
+        print(f"{i+1}. {task.title} ({task.duration} minutes)")
     print()
 
-def start_timer():
-    show_tasks()
+# Start a timer for selected task
+def start_task_timer():
+    if not tasks:
+        print("🚫 No tasks to start.\n")
+        return
+    list_tasks()
     try:
-        choice = int(input("Enter task number to start timer: ")) - 1
-        task = tasks[choice]
-        minutes = task["minutes"]
-        seconds = minutes * 60
-        print(f"⏳ Starting timer for '{task['title']}' ({minutes} mins):\n")
+        choice = int(input("Select task number to start: "))
+        if 1 <= choice <= len(tasks):
+            task = tasks[choice - 1]
+            print(f"⏳ Starting timer for '{task.title}' ({task.duration} mins):\n")
+            total_seconds = task.duration * 60
+            try:
+                while total_seconds:
+                    mins, secs = divmod(total_seconds, 60)
+                    print(f"\r⏱ {mins:02d}:{secs:02d}", end="")
+                    time.sleep(1)
+                    total_seconds -= 1
+                print(f"\n✅ Time's up for task: {task.title}!\n")
+            except KeyboardInterrupt:
+                print(f"\n⏹️ Timer for '{task.title}' was stopped manually.\n")
+        else:
+            print("❌ Invalid choice.\n")
+    except ValueError:
+        print("❌ Please enter a valid number.\n")
 
-        while seconds:
-            mins = seconds // 60
-            secs = seconds % 60
-            timer = f"{mins:02d}:{secs:02d}"
-            print(f"\r⏱ {timer}", end="")
-            time.sleep(1)
-            seconds -= 1
-
-        print(f"\n✅ Time's up for task: {task['title']}!\n")
-    except (IndexError, ValueError):
-        print("❌ Invalid choice.\n")
-
+# Main menu
 def main():
     while True:
-        print("===== TO-DO MANAGER WITH TIMER =====")
+        print("📋 To-Do Timer Manager")
         print("1. Add Task")
-        print("2. Show Tasks")
+        print("2. View Tasks")
         print("3. Start Task Timer")
         print("4. Exit")
-        choice = input("Choose an option: ")
-
+        choice = input("Select an option: ")
         if choice == '1':
             add_task()
         elif choice == '2':
-            show_tasks()
+            list_tasks()
         elif choice == '3':
-            start_timer()
+            start_task_timer()
         elif choice == '4':
-            print("👋 Exiting...")
+            print("👋 Exiting. Have a productive day!")
             break
         else:
-            print("❌ Invalid input, try again.\n")
+            print("❌ Invalid choice. Try again.\n")
 
 if __name__ == "__main__":
     main()
