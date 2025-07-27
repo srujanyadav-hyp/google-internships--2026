@@ -1,143 +1,146 @@
+import tkinter as tk
+from tkinter import messagebox, simpledialog
 import time
-import os
+import json
 import threading
-import sys
-import termios
-import tty
+import os
+from playsound import playsound
 
-# --- Task Class ---
-class Task:
-    def __init__(self, title, duration):
-        self.title = title
-        self.duration = duration  # in minutes
+TASKS_FILE = "tasks.json"
 
-# --- Globals ---
-TASK_FILE = "tasks.txt"
-tasks = []
-pause_flag = threading.Event()
-stop_flag = threading.Event()
+class TaskTimer:
+    def __init__(self, master):
+        self.master = master
+        self.master.title("To-Do Timer Manager")
 
-# --- Task File I/O ---
-def load_tasks():
-    if not os.path.exists(TASK_FILE):
-        return
-    with open(TASK_FILE, "r") as f:
-        for line in f:
-            parts = line.strip().split("|")
-            if len(parts) == 2:
-                title, duration = parts
-                tasks.append(Task(title, int(duration)))
+        self.tasks = []
+        self.current_timer = None
+        self.timer_running = False
+        self.timer_paused = False
+        self.remaining_time = 0
 
-def save_task(task):
-    with open(TASK_FILE, "a") as f:
-        f.write(f"{task.title}|{task.duration}\n")
+        # UI
+        self.task_entry = tk.Entry(master, width=40)
+        self.task_entry.pack(pady=5)
 
-# --- Input Handling for Pause/Resume/Stop ---
-def get_char():
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        ch = sys.stdin.read(1)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-    return ch
+        self.time_entry = tk.Entry(master, width=20)
+        self.time_entry.insert(0, "mm:ss")
+        self.time_entry.pack(pady=5)
 
-def listen_for_keys():
-    while True:
-        char = get_char()
-        if char == 'p':
-            pause_flag.set()
-            print("\n⏸️ Paused. Press 'r' to resume.")
-        elif char == 'r':
-            pause_flag.clear()
-            print("\n▶️ Resumed.")
-        elif char == 'q':
-            stop_flag.set()
-            print("\n⏹️ Timer stopped.")
-            break
+        self.add_button = tk.Button(master, text="Add Task", command=self.add_task)
+        self.add_button.pack()
 
-# --- Task Functions ---
-def add_task():
-    title = input("Enter task title: ")
-    try:
-        duration = int(input("Enter time in minutes for this task: "))
-        task = Task(title, duration)
-        tasks.append(task)
-        save_task(task)
-        print(f"✅ Task '{title}' added for {duration} minutes.\n")
-    except ValueError:
-        print("❌ Invalid duration. Please enter a number.\n")
+        self.listbox = tk.Listbox(master, width=50)
+        self.listbox.pack(pady=10)
 
-def list_tasks():
-    if not tasks:
-        print("🚫 No tasks available.\n")
-        return
-    print("📝 Tasks:")
-    for i, task in enumerate(tasks):
-        print(f"{i+1}. {task.title} ({task.duration} minutes)")
-    print()
+        self.start_button = tk.Button(master, text="Start", command=self.start_timer)
+        self.start_button.pack(side=tk.LEFT, padx=5)
 
-def start_task_timer():
-    if not tasks:
-        print("🚫 No tasks to start.\n")
-        return
-    list_tasks()
-    try:
-        choice = int(input("Select task number to start: "))
-        if 1 <= choice <= len(tasks):
-            task = tasks[choice - 1]
-            print(f"\n⏳ Starting timer for '{task.title}' ({task.duration} mins):")
-            print("🔁 Press 'p' to pause, 'r' to resume, 'q' to quit.\n")
+        self.pause_button = tk.Button(master, text="Pause", command=self.pause_timer)
+        self.pause_button.pack(side=tk.LEFT, padx=5)
 
-            total_seconds = task.duration * 60
-            pause_flag.clear()
-            stop_flag.clear()
+        self.resume_button = tk.Button(master, text="Resume", command=self.resume_timer)
+        self.resume_button.pack(side=tk.LEFT, padx=5)
 
-            # Start listening thread
-            listener = threading.Thread(target=listen_for_keys, daemon=True)
-            listener.start()
+        self.stop_button = tk.Button(master, text="Stop", command=self.stop_timer)
+        self.stop_button.pack(side=tk.LEFT, padx=5)
 
-            while total_seconds > 0:
-                if stop_flag.is_set():
-                    print(f"⏹️ Timer manually stopped at {total_seconds // 60} mins {total_seconds % 60} secs left.\n")
-                    break
-                if not pause_flag.is_set():
-                    mins, secs = divmod(total_seconds, 60)
-                    print(f"\r⏱ {mins:02d}:{secs:02d}", end="")
-                    time.sleep(1)
-                    total_seconds -= 1
-                else:
-                    time.sleep(0.2)
+        self.delete_button = tk.Button(master, text="Delete Task", command=self.delete_task)
+        self.delete_button.pack(pady=5)
 
-            if total_seconds == 0 and not stop_flag.is_set():
-                print(f"\n✅ Time's up for task: {task.title}!\n")
-        else:
-            print("❌ Invalid choice.\n")
-    except ValueError:
-        print("❌ Please enter a valid number.\n")
+        self.load_tasks()
 
-# --- Main Menu ---
-def main():
-    load_tasks()
-    while True:
-        print("📋 To-Do Timer Manager")
-        print("1. Add Task")
-        print("2. View Tasks")
-        print("3. Start Task Timer")
-        print("4. Exit")
-        choice = input("Select an option: ")
-        if choice == '1':
-            add_task()
-        elif choice == '2':
-            list_tasks()
-        elif choice == '3':
-            start_task_timer()
-        elif choice == '4':
-            print("👋 Exiting. Stay focused!")
-            break
-        else:
-            print("❌ Invalid choice. Try again.\n")
+    def add_task(self):
+        task_name = self.task_entry.get()
+        time_str = self.time_entry.get()
+        if not task_name or not time_str:
+            messagebox.showwarning("Input Error", "Enter task and time (mm:ss)")
+            return
+        try:
+            minutes, seconds = map(int, time_str.split(":"))
+            total_seconds = minutes * 60 + seconds
+        except:
+            messagebox.showwarning("Format Error", "Use mm:ss format for time")
+            return
+
+        self.tasks.append({"name": task_name, "time": total_seconds})
+        self.save_tasks()
+        self.update_listbox()
+        self.task_entry.delete(0, tk.END)
+        self.time_entry.delete(0, tk.END)
+
+    def update_listbox(self):
+        self.listbox.delete(0, tk.END)
+        for task in self.tasks:
+            display_time = time.strftime('%M:%S', time.gmtime(task['time']))
+            self.listbox.insert(tk.END, f"{task['name']} - {display_time}")
+
+    def start_timer(self):
+        if self.timer_running or self.timer_paused:
+            return
+        selection = self.listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No task", "Please select a task to start")
+            return
+        index = selection[0]
+        self.current_task = self.tasks[index]
+        self.remaining_time = self.current_task["time"]
+        self.timer_running = True
+        self.timer_paused = False
+        self.timer_thread = threading.Thread(target=self.run_timer)
+        self.timer_thread.start()
+
+    def run_timer(self):
+        while self.remaining_time > 0 and self.timer_running:
+            if self.timer_paused:
+                time.sleep(1)
+                continue
+            mins, secs = divmod(self.remaining_time, 60)
+            self.master.title(f"{self.current_task['name']} - {mins:02}:{secs:02}")
+            time.sleep(1)
+            self.remaining_time -= 1
+
+        if self.remaining_time == 0 and self.timer_running:
+            self.master.title("Time's up!")
+            playsound("alarm.mp3")  # Provide your own short mp3/wav file in the same folder
+            messagebox.showinfo("Done", f"Task '{self.current_task['name']}' finished!")
+        self.timer_running = False
+        self.timer_paused = False
+
+    def pause_timer(self):
+        if self.timer_running:
+            self.timer_paused = True
+
+    def resume_timer(self):
+        if self.timer_running and self.timer_paused:
+            self.timer_paused = False
+
+    def stop_timer(self):
+        self.timer_running = False
+        self.timer_paused = False
+        self.master.title("To-Do Timer Manager")
+
+    def delete_task(self):
+        selection = self.listbox.curselection()
+        if not selection:
+            messagebox.showwarning("No task", "Select a task to delete")
+            return
+        index = selection[0]
+        del self.tasks[index]
+        self.save_tasks()
+        self.update_listbox()
+
+    def save_tasks(self):
+        with open(TASKS_FILE, "w") as f:
+            json.dump(self.tasks, f)
+
+    def load_tasks(self):
+        if os.path.exists(TASKS_FILE):
+            with open(TASKS_FILE, "r") as f:
+                self.tasks = json.load(f)
+                self.update_listbox()
 
 if __name__ == "__main__":
-    main()
+    root = tk.Tk()
+    app = TaskTimer(root)
+    root.mainloop()
